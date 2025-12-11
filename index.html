@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PDFgen</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root{
+  --bg:#e0e5ec;
+  --shadow-dark:#a3b1c6;
+  --shadow-light:#ffffff;
+  --text:#111;
+}
+body.dark{
+  --bg:#0b1220;
+  --shadow-dark:#000;
+  --shadow-light:#1f2933;
+  --text:#00ffcc;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+
+body{
+  margin:0;
+  font-family:system-ui,Arial;
+  background:var(--bg);
+  color:var(--text);
+}
+
+.app{
+  max-width:520px;
+  margin:auto;
+  padding:10px;
+}
+
+h2{
+  text-align:center;
+  font-size:22px;
+}
+
+.neo{
+  background:var(--bg);
+  border-radius:20px;
+  box-shadow:
+    8px 8px 16px var(--shadow-dark),
+    -8px -8px 16px var(--shadow-light);
+  padding:12px;
+  margin-bottom:12px;
+}
+
+input, textarea, button{
+  width:100%;
+  padding:14px;
+  margin:6px 0;
+  border:none;
+  font-size:15px;
+  border-radius:16px;
+  background:var(--bg);
+  box-shadow:
+    inset 5px 5px 10px var(--shadow-dark),
+    inset -5px -5px 10px var(--shadow-light);
+}
+
+textarea{
+  min-height:120px;
+}
+
+button{
+  font-weight:700;
+  cursor:pointer;
+  box-shadow:
+    5px 5px 10px var(--shadow-dark),
+    -5px -5px 10px var(--shadow-light);
+}
+
+.dark-btn{
+  position:fixed;
+  top:10px;
+  right:10px;
+  width:52px;
+  height:52px;
+  border-radius:50%;
+  font-size:20px;
+  z-index:10;
+}
+
+.footer{
+  text-align:center;
+  padding:12px;
+  font-size:12px;
+  border-radius:16px;
+  margin-top:12px;
+  box-shadow:
+    inset 5px 5px 10px var(--shadow-dark),
+    inset -5px -5px 10px var(--shadow-light);
+}
+
+.download-link{
+  display:block;
+  margin-top:10px;
+  padding:12px;
+  background:#111;
+  color:#fff;
+  text-decoration:none;
+  border-radius:12px;
+  text-align:center;
+}
+
+.log{
+  font-size:13px;
+  white-space:pre-wrap;
+  max-height:120px;
+  overflow-y:auto;
+}
+</style>
+</head>
+
+<body>
+<button class="dark-btn" onclick="toggleDark()">🌙</button>
+
+<div class="app">
+  <h2>PDFgen</h2>
+
+  <!-- Text to PDF -->
+  <div class="neo">
+    <textarea id="textInput" placeholder="Type your text here..."></textarea>
+    <button onclick="textToPDF()">Text → PDF</button>
+    <div id="textDownload"></div>
+  </div>
+
+  <!-- DOCX to PDF -->
+  <div class="neo">
+    <input type="file" id="docxFile" accept=".docx">
+    <button onclick="docxToPDF()">DOCX → PDF</button>
+    <div id="docxDownload"></div>
+  </div>
+
+  <!-- CSV to PDF -->
+  <div class="neo">
+    <input type="file" id="csvFile" accept=".csv">
+    <button onclick="csvToPDF()">CSV → PDF</button>
+    <div id="csvDownload"></div>
+  </div>
+
+  <!-- Watermark -->
+  <div class="neo">
+    <input type="file" id="pdfFile" accept="application/pdf">
+    <input type="text" id="watermarkText" placeholder="Watermark text...">
+    <button onclick="addWatermark()">Add Watermark</button>
+    <div id="watermarkDownload"></div>
+  </div>
+
+  <pre id="logBox" class="log"></pre>
+
+  <div class="footer" id="footerText"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+
+<script>
+document.getElementById("footerText").textContent =
+  "© Manik Roy " + new Date().getFullYear() + " • All Rights Reserved";
+
+function toggleDark(){
+  document.body.classList.toggle("dark");
+  document.querySelector(".dark-btn").textContent =
+    document.body.classList.contains("dark") ? "☀️" : "🌙";
+}
+
+function log(msg){
+  const box = document.getElementById("logBox");
+  box.textContent += msg + "\n";
+  box.scrollTop = box.scrollHeight;
+}
+
+function createDownloadLink(bytes, filename, containerId){
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+
+  const blob = new Blob([bytes], {type:"application/pdf"});
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.className = "download-link";
+  link.textContent = "Click to Download / Share PDF";
+
+  container.appendChild(link);
+
+  if(navigator.share){
+    link.addEventListener("click", async (e)=>{
+      try{
+        await navigator.share({
+          files: [new File([blob], filename, {type:"application/pdf"})],
+          title: "PDFgen File",
+          text: "Your generated PDF"
+        });
+        e.preventDefault();
+      }catch(err){
+        console.log(err);
+      }
+    });
+  }
+}
+
+// ✅ Text → PDF
+async function textToPDF(){
+  const txt = document.getElementById("textInput").value;
+  if(!txt.trim()){
+    alert("Please type text");
+    return;
+  }
+
+  const pdf = await PDFLib.PDFDocument.create();
+  let page = pdf.addPage([595,842]);
+  const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+
+  let y = 800;
+  const lines = txt.match(/.{1,90}/g) || [];
+
+  for(const line of lines){
+    if(y < 60){
+      page = pdf.addPage([595,842]);
+      y = 800;
+    }
+    page.drawText(line,{x:50,y:y,size:14,font});
+    y -= 20;
+  }
+
+  const bytes = await pdf.save();
+  createDownloadLink(bytes,"text-to-pdf.pdf","textDownload");
+  log("✅ Text → PDF created");
+}
+
+// ✅ DOCX → PDF
+async function docxToPDF(){
+  const file = document.getElementById("docxFile").files[0];
+  if(!file){
+    alert("Select DOCX file");
+    return;
+  }
+
+  const buffer = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({arrayBuffer:buffer});
+
+  const pdf = await PDFLib.PDFDocument.create();
+  let page = pdf.addPage([595,842]);
+  const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+
+  let y = 800;
+  const lines = result.value.split("\n");
+
+  for(const line of lines){
+    if(y < 60){
+      page = pdf.addPage([595,842]);
+      y = 800;
+    }
+    page.drawText(line,{x:50,y:y,size:14,font});
+    y -= 20;
+  }
+
+  const bytes = await pdf.save();
+  createDownloadLink(bytes,"docx-to-pdf.pdf","docxDownload");
+  log("✅ DOCX → PDF created");
+}
+
+// ✅ CSV → PDF
+async function csvToPDF(){
+  const file = document.getElementById("csvFile").files[0];
+  if(!file){
+    alert("Select CSV file");
+    return;
+  }
+
+  const text = await file.text();
+
+  const pdf = await PDFLib.PDFDocument.create();
+  let page = pdf.addPage([595,842]);
+  const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+
+  let y = 800;
+  const rows = text.split("\n");
+
+  for(const row of rows){
+    if(y < 60){
+      page = pdf.addPage([595,842]);
+      y = 800;
+    }
+    page.drawText(row,{x:40,y:y,size:12,font});
+    y -= 18;
+  }
+
+  const bytes = await pdf.save();
+  createDownloadLink(bytes,"csv-to-pdf.pdf","csvDownload");
+  log("✅ CSV → PDF created");
+}
+
+// ✅ Add Watermark
+async function addWatermark(){
+  const file = document.getElementById("pdfFile").files[0];
+  const text = document.getElementById("watermarkText").value;
+
+  if(!file || !text){
+    alert("Select PDF and enter watermark text");
+    return;
+  }
+
+  const buffer = await file.arrayBuffer();
+  const pdf = await PDFLib.PDFDocument.load(buffer);
+
+  const pages = pdf.getPages();
+  pages.forEach(page=>{
+    page.drawText(text,{
+      x:40,
+      y:40,
+      size:30,
+      opacity:0.25
+    });
+  });
+
+  const bytes = await pdf.save();
+  createDownloadLink(bytes,"watermarked.pdf","watermarkDownload");
+  log("✅ Watermark added");
+}
+</script>
+
+</body>
+</html>
